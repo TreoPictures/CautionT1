@@ -1,8 +1,5 @@
 app = "cautiont1"
 
-[build]
-  image = "python:3.11-slim"
-
 [env]
   PORT = "8080"
 

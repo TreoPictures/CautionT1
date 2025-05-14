@@ -1,15 +1,8 @@
-from openai import OpenAI
+import os
+import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel
-import os
 
-# Debug
-print("API key loaded:", os.getenv("OPENAI_API_KEY") is not None)
-
-# Set up OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-# Init FastAPI
 app = FastAPI()
 
 class Message(BaseModel):
@@ -17,17 +10,28 @@ class Message(BaseModel):
 
 @app.post("/chat")
 async def chat_with_ai(message: Message):
+    headers = {
+        "Authorization": f"Bearer {os.getenv('TOGETHER_API_KEY')}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": "togethercomputer/Mixtral-8x7B-Instruct-v0.1",
+        "prompt": f"<s>[INST] {message.prompt} [/INST]",
+        "max_tokens": 200,
+        "temperature": 0.7,
+        "top_p": 0.7,
+    }
+
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",  # Or "gpt-4" if your key has access
-            messages=[{"role": "user", "content": message.prompt}],
-            temperature=0.7,
-            max_tokens=150,
-        )
-        return {"response": response.choices[0].message.content.strip()}
+        async with httpx.AsyncClient() as client:
+            res = await client.post("https://api.together.xyz/v1/completions", headers=headers, json=payload)
+            res.raise_for_status()
+            output = res.json()
+            return {"response": output["choices"][0]["text"].strip()}
     except Exception as e:
         return {"error": str(e)}
 
 @app.get("/")
 def read_root():
-    return {"message": "Hello from FastAPI on Fly.io!"}
+    return {"message": "Hello from your ethical sim-racing AI!"}

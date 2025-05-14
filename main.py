@@ -5,8 +5,9 @@ from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Only load .env in development
+if os.getenv("FLY_APP_NAME") is None:  # FLY_APP_NAME is automatically set by Fly.io
+    load_dotenv()
 
 # Check if the OpenAI API key is being loaded
 print(os.getenv("OPENAI_API_KEY"))

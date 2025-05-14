@@ -8,6 +8,9 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# Check if the OpenAI API key is being loaded
+print(os.getenv("OPENAI_API_KEY"))
+
 # Initialize FastAPI app
 app = FastAPI()
 

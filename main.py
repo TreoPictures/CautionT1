@@ -1,16 +1,16 @@
-import openai
+from openai import OpenAI
 from fastapi import FastAPI
 from pydantic import BaseModel
 import os
 
-# Check if the key is set (for debugging, can remove this later)
+# Debug
 print("API key loaded:", os.getenv("OPENAI_API_KEY") is not None)
 
-# Initialize FastAPI
-app = FastAPI()
+# Set up OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Set API key
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Init FastAPI
+app = FastAPI()
 
 class Message(BaseModel):
     prompt: str
@@ -18,13 +18,13 @@ class Message(BaseModel):
 @app.post("/chat")
 async def chat_with_ai(message: Message):
     try:
-        response = openai.Completion.create(
-            model="text-davinci-003",
-            prompt=message.prompt,
-            max_tokens=150,
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",  # Or "gpt-4" if your key has access
+            messages=[{"role": "user", "content": message.prompt}],
             temperature=0.7,
+            max_tokens=150,
         )
-        return {"response": response.choices[0].text.strip()}
+        return {"response": response.choices[0].message.content.strip()}
     except Exception as e:
         return {"error": str(e)}
 

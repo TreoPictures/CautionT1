@@ -1,20 +1,27 @@
 import os
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware  # Import CORS middleware
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
 import httpx
+from supabase import create_client, Client
 
+# API Keys
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
 BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+# Initialize Supabase
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI()
 
-# Add CORS middleware here - allows your Carrd website (or any origin) to call your API
+# CORS for Carrd site (currently open to all origins)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # You can restrict this to your Carrd domain later, e.g. ["https://your-carrd-site.com"]
+    allow_origins=["*"],  # For Carrd, use e.g. ["https://your-site.carrd.co"]
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,7 +37,6 @@ async def brave_search(query: str) -> str:
         "X-Subscription-Token": BRAVE_API_KEY
     }
     params = {"q": query, "count": 3}
-
     try:
         async with httpx.AsyncClient() as client:
             res = await client.get(url, headers=headers, params=params)
@@ -51,7 +57,6 @@ async def serpapi_search(query: str) -> str:
         "engine": "google",
         "num": 3
     }
-
     try:
         async with httpx.AsyncClient() as client:
             res = await client.get(url, params=params)
@@ -64,36 +69,60 @@ async def serpapi_search(query: str) -> str:
     except Exception as e:
         return f"SerpAPI failed: {str(e)}"
 
+def fetch_recent_setups(limit=3) -> str:
+    try:
+        result = supabase.table("setups").select("*").order("id", desc=True).limit(limit).execute()
+        if not result.data:
+            return "No real setups found."
+        return "\n".join([
+            f"- {s['car']} at {s['track']} → {s['url']}" for s in result.data
+        ])
+    except Exception as e:
+        return f"Could not load setups: {str(e)}"
+
 @app.post("/chat")
 async def chat_with_ai(message: Message):
-    # First fetch search results
     search_results = await brave_search(message.prompt)
     if "failed" in search_results.lower():
         search_results = await serpapi_search(message.prompt)
 
-    # Compose augmented prompt
+    real_setups = fetch_recent_setups()
+
     messages = [
-        {"role": "system", "content": "You are a sim racing setup expert. Use the provided search results to help answer questions."},
-        {"role": "user", "content": f"User prompt: {message.prompt}\n\nSearch results:\n{search_results}"}
+        {
+            "role": "system",
+            "content": (
+                "You are a sim racing setup expert. Use the provided search results "
+                "and real setup data to help the user."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"User prompt: {message.prompt}\n\n"
+                f"Search results:\n{search_results}\n\n"
+                f"Real setups:\n{real_setups}"
+            ),
+        },
     ]
 
     headers = {
         "Authorization": f"Bearer {TOGETHER_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     data = {
         "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
         "messages": messages,
         "temperature": 0.7,
-        "max_tokens": 400
+        "max_tokens": 400,
     }
 
     try:
         response = requests.post(
             "https://api.together.xyz/v1/chat/completions",
             headers=headers,
-            json=data
+            json=data,
         )
         response.raise_for_status()
         return {
@@ -104,4 +133,4 @@ async def chat_with_ai(message: Message):
 
 @app.get("/")
 def read_root():
-    return {"message": "Together AI + Brave Search + SerpAPI live"}
+    return {"message": "Together AI + Brave + SerpAPI + Supabase SetupBot is live!"}

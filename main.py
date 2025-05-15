@@ -1,15 +1,15 @@
 import os
 import hashlib
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from datetime import datetime
+
 import requests
+import httpx
+import praw
 from supabase import create_client, Client
 from bs4 import BeautifulSoup
-from datetime import datetime
-import re
-import praw
-import httpx
 
 # ---------- ENVIRONMENT VARIABLES ----------
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
@@ -38,6 +38,7 @@ app.add_middleware(
 class Message(BaseModel):
     prompt: str
 
+# ---------- UTILS ----------
 def dedup_hash(car: str, track: str, notes: str | None) -> str:
     content = f"{car.lower()}|{track.lower()}|{notes or ''}"
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -52,7 +53,7 @@ def save_to_supabase(entry: dict) -> bool:
     supabase.table("setups").insert(entry).execute()
     return True
 
-# ---------- SCRAPER: REDDIT (USING PRAW) ----------
+# ---------- SCRAPER: REDDIT ----------
 @app.get("/scrape/reddit")
 def scrape_reddit(car: str = "Mazda MX-5", track: str = "Okayama"):
     try:
@@ -67,7 +68,6 @@ def scrape_reddit(car: str = "Mazda MX-5", track: str = "Okayama"):
         posts = subreddit.search(query, limit=10, sort="new")
 
         saved = []
-
         for post in posts:
             url = f"https://www.reddit.com{post.permalink}"
             title = post.title.strip()
@@ -86,9 +86,8 @@ def scrape_reddit(car: str = "Mazda MX-5", track: str = "Okayama"):
                 saved.append(entry)
 
         return {"saved": len(saved), "entries": saved}
-
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ---------- SEARCH: BRAVE API ----------
 @app.get("/search/brave")
@@ -105,8 +104,10 @@ def search_brave(car: str, track: str):
         data = res.json()
         urls = [item["url"] for item in data.get("web", {}).get("results", [])]
         return {"query": query, "results": urls}
-    except Exception as e:
-        return {"error": f"Brave API error: {str(e)}"}
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Brave API connection error: {str(e)}")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f"Brave API error: {e.response.text}")
 
 # ---------- SEARCH: SERPAPI ----------
 @app.get("/search/serpapi")
@@ -123,5 +124,5 @@ def search_serpapi(car: str, track: str):
         data = res.json()
         urls = [r.get("link") for r in data.get("organic_results", []) if r.get("link")]
         return {"query": query, "results": urls}
-    except Exception as e:
-        return {"error": f"SerpAPI error: {str(e)}"}
+    except requests.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"SerpAPI error: {str(e)}")

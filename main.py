@@ -52,41 +52,6 @@ def save_to_supabase(entry: dict) -> bool:
     supabase.table("setups").insert(entry).execute()
     return True
 
-# ---------- SCRAPER: SIMRACINGSETUP.COM ----------
-@app.get("/scrape/simracingsetup")
-def scrape_simracingsetup():
-    url = "https://simracingsetup.com/assetto-corsa-setups/"
-    try:
-        res = requests.get(url, timeout=10)
-        res.raise_for_status()
-        soup = BeautifulSoup(res.text, "html.parser")
-        links = soup.select("a[href*='/assetto-corsa-setups/']")
-
-        saved = []
-
-        for a in links:
-            href = a.get("href", "")
-            text = a.text.strip()
-            match = re.match(r"(.*?) Setup – (.*?)$", text)
-            if not match:
-                continue
-            car, track = match.groups()
-            entry = {
-                "car": car,
-                "track": track,
-                "url": href,
-                "source": "simracingsetup.com",
-                "notes": None,
-                "created_at": datetime.utcnow().isoformat(),
-            }
-            entry["hash"] = dedup_hash(entry["car"], entry["track"], entry["notes"])
-            if save_to_supabase(entry):
-                saved.append(entry)
-
-        return {"saved": len(saved), "entries": saved}
-    except Exception as e:
-        return {"error": str(e)}
-
 # ---------- SCRAPER: RACINGSSETUPS.SHOP ----------
 @app.get("/scrape/racingsetups")
 def scrape_racingsetups():

@@ -126,3 +126,10 @@ def search_serpapi(car: str, track: str):
         return {"query": query, "results": urls}
     except requests.RequestException as e:
         raise HTTPException(status_code=500, detail=f"SerpAPI error: {str(e)}")
+
+@app.post("/chat")
+def chat(msg: Message):
+    prompt = msg.prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
+    return {"response": f"You said: {prompt}"}

@@ -15,5 +15,3 @@ app = "cautiont1"
     handlers = ["tls", "http"]
     port = 443
 
-[dns]
-  nameservers = ["1.1.1.1", "8.8.8.8"]

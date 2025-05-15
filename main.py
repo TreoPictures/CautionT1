@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 import re
 import praw
+import httpx
 
 # ---------- ENVIRONMENT VARIABLES ----------
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
@@ -157,3 +158,39 @@ def scrape_reddit(car: str = "Mazda MX-5", track: str = "Okayama"):
 
     except Exception as e:
         return {"error": str(e)}
+
+# ---------- SEARCH: BRAVE API ----------
+@app.get("/search/brave")
+def search_brave(car: str, track: str):
+    query = f"{car} {track} setup site:reddit.com OR site:simracingsetup.com OR site:racingsetups.shop"
+    try:
+        res = httpx.get(
+            "https://api.search.brave.com/res/v1/web/search",
+            headers={"Accept": "application/json", "X-Subscription-Token": BRAVE_API_KEY},
+            params={"q": query, "count": 10},
+            timeout=10
+        )
+        res.raise_for_status()
+        data = res.json()
+        urls = [item["url"] for item in data.get("web", {}).get("results", [])]
+        return {"query": query, "results": urls}
+    except Exception as e:
+        return {"error": f"Brave API error: {str(e)}"}
+
+# ---------- SEARCH: SERPAPI ----------
+@app.get("/search/serpapi")
+def search_serpapi(car: str, track: str):
+    query = f"{car} {track} setup site:reddit.com OR site:simracingsetup.com OR site:racingsetups.shop"
+    try:
+        res = requests.get("https://serpapi.com/search", params={
+            "q": query,
+            "api_key": SERPAPI_KEY,
+            "engine": "google",
+            "num": 10
+        }, timeout=10)
+        res.raise_for_status()
+        data = res.json()
+        urls = [r.get("link") for r in data.get("organic_results", []) if r.get("link")]
+        return {"query": query, "results": urls}
+    except Exception as e:
+        return {"error": f"SerpAPI error: {str(e)}"}

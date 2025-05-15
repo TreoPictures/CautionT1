@@ -3,6 +3,4 @@ uvicorn[standard]
 requests
 httpx
 supabase
-beautifulsoup4
-praw
 python-dotenv

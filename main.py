@@ -3,13 +3,10 @@ import hashlib
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from datetime import datetime
-
 import requests
 import httpx
-import praw
 from supabase import create_client, Client
-from bs4 import BeautifulSoup
+from datetime import datetime
 
 # ---------- ENVIRONMENT VARIABLES ----------
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
@@ -17,9 +14,6 @@ BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
-REDDIT_SECRET = os.getenv("REDDIT_SECRET")
-REDDIT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", "setup-bot")
 
 # ---------- SUPABASE CLIENT ----------
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -38,7 +32,6 @@ app.add_middleware(
 class Message(BaseModel):
     prompt: str
 
-# ---------- UTILS ----------
 def dedup_hash(car: str, track: str, notes: str | None) -> str:
     content = f"{car.lower()}|{track.lower()}|{notes or ''}"
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -53,41 +46,10 @@ def save_to_supabase(entry: dict) -> bool:
     supabase.table("setups").insert(entry).execute()
     return True
 
-# ---------- SCRAPER: REDDIT ----------
-@app.get("/scrape/reddit")
-def scrape_reddit(car: str = "Mazda MX-5", track: str = "Okayama"):
-    try:
-        reddit = praw.Reddit(
-            client_id=REDDIT_CLIENT_ID,
-            client_secret=REDDIT_SECRET,
-            user_agent=REDDIT_USER_AGENT
-        )
-
-        query = f"{car} {track} setup"
-        subreddit = reddit.subreddit("simracing+iracing")
-        posts = subreddit.search(query, limit=10, sort="new")
-
-        saved = []
-        for post in posts:
-            url = f"https://www.reddit.com{post.permalink}"
-            title = post.title.strip()
-            body = post.selftext.strip()
-
-            entry = {
-                "car": car,
-                "track": track,
-                "url": url,
-                "source": "reddit",
-                "notes": f"{title}\n\n{body}" if body else title,
-                "created_at": datetime.utcnow().isoformat()
-            }
-            entry["hash"] = dedup_hash(entry["car"], entry["track"], entry["notes"])
-            if save_to_supabase(entry):
-                saved.append(entry)
-
-        return {"saved": len(saved), "entries": saved}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# ---------- HEALTH CHECK ----------
+@app.get("/")
+def health():
+    return {"status": "ok"}
 
 # ---------- SEARCH: BRAVE API ----------
 @app.get("/search/brave")
@@ -104,10 +66,8 @@ def search_brave(car: str, track: str):
         data = res.json()
         urls = [item["url"] for item in data.get("web", {}).get("results", [])]
         return {"query": query, "results": urls}
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=500, detail=f"Brave API connection error: {str(e)}")
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f"Brave API error: {e.response.text}")
+    except Exception as e:
+        return {"error": f"Brave API error: {str(e)}"}
 
 # ---------- SEARCH: SERPAPI ----------
 @app.get("/search/serpapi")
@@ -124,12 +84,41 @@ def search_serpapi(car: str, track: str):
         data = res.json()
         urls = [r.get("link") for r in data.get("organic_results", []) if r.get("link")]
         return {"query": query, "results": urls}
-    except requests.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"SerpAPI error: {str(e)}")
+    except Exception as e:
+        return {"error": f"SerpAPI error: {str(e)}"}
 
-@app.post("/chat")
-def chat(msg: Message):
-    prompt = msg.prompt.strip()
-    if not prompt:
-        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
-    return {"response": f"You said: {prompt}"}
+# ---------- CHAT: TOGETHER.AI ----------
+class ChatRequest(BaseModel):
+    prompt: str
+
+class ChatResponse(BaseModel):
+    reply: str
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat_endpoint(request: ChatRequest):
+    if not TOGETHER_API_KEY:
+        raise HTTPException(status_code=500, detail="TOGETHER_API_KEY not set")
+
+    url = "https://api.together.ai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {TOGETHER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    json_data = {
+        "model": "together-mosaicml/mpt-7b-chat",
+        "messages": [
+            {"role": "user", "content": request.prompt}
+        ],
+        "max_tokens": 512,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(url, headers=headers, json=json_data)
+            response.raise_for_status()
+            data = response.json()
+            reply = data["choices"][0]["message"]["content"]
+            return ChatResponse(reply=reply)
+
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=500, detail=f"Together.ai API error: {str(e)}")

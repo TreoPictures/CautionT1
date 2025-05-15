@@ -52,40 +52,6 @@ def save_to_supabase(entry: dict) -> bool:
     supabase.table("setups").insert(entry).execute()
     return True
 
-# ---------- SCRAPER: RACINGSSETUPS.SHOP ----------
-@app.get("/scrape/racingsetups")
-def scrape_racingsetups():
-    base_url = "https://racingsetups.shop"
-    try:
-        res = requests.get(base_url, timeout=10)
-        res.raise_for_status()
-        soup = BeautifulSoup(res.text, "html.parser")
-        links = soup.select("a[href*='/products/']")
-
-        saved = []
-        for a in links:
-            href = a.get("href", "")
-            title = a.get("title", "") or a.text.strip()
-            match = re.match(r"(.*?) Setup for (.*?)$", title)
-            if not match:
-                continue
-            car, track = match.groups()
-            entry = {
-                "car": car.strip(),
-                "track": track.strip(),
-                "url": f"{base_url}{href}",
-                "source": "racingsetups.shop",
-                "notes": None,
-                "created_at": datetime.utcnow().isoformat(),
-            }
-            entry["hash"] = dedup_hash(entry["car"], entry["track"], entry["notes"])
-            if save_to_supabase(entry):
-                saved.append(entry)
-
-        return {"saved": len(saved), "entries": saved}
-    except Exception as e:
-        return {"error": str(e)}
-
 # ---------- SCRAPER: REDDIT (USING PRAW) ----------
 @app.get("/scrape/reddit")
 def scrape_reddit(car: str = "Mazda MX-5", track: str = "Okayama"):

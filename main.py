@@ -1,3 +1,4 @@
+# main.py
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -5,6 +6,8 @@ from pydantic import BaseModel
 import requests
 import httpx
 from supabase import create_client, Client
+from bs4 import BeautifulSoup
+from datetime import datetime
 
 # API Keys
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
@@ -13,15 +16,14 @@ SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Initialize Supabase
+# Supabase init
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI()
 
-# CORS for Carrd site (currently open to all origins)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For Carrd, use e.g. ["https://your-site.carrd.co"]
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,6 +32,7 @@ app.add_middleware(
 class Message(BaseModel):
     prompt: str
 
+# ---------- SEARCH UTILS ----------
 async def brave_search(query: str) -> str:
     url = "https://api.search.brave.com/res/v1/web/search"
     headers = {
@@ -69,6 +72,60 @@ async def serpapi_search(query: str) -> str:
     except Exception as e:
         return f"SerpAPI failed: {str(e)}"
 
+# ---------- SCRAPER ----------
+@app.get("/scrape/garage61")
+def scrape_garage61():
+    url = "https://garage61.gg/setups"
+    try:
+        response = requests.get(url, timeout=10)
+        soup = BeautifulSoup(response.text, "html.parser")
+        setup_cards = soup.select(".setup-card")
+        saved = []
+
+        for card in setup_cards:
+            car = card.select_one(".car-name")
+            track = card.select_one(".track-name")
+            link = card.select_one("a")["href"]
+
+            if car and track and link:
+                entry = {
+                    "car": car.text.strip(),
+                    "track": track.text.strip(),
+                    "url": f"https://garage61.gg{link}",
+                    "source": "Garage61",
+                    "notes": None,
+                    "created_at": datetime.utcnow().isoformat()
+                }
+                supabase.table("setups").insert(entry).execute()
+                saved.append(entry)
+
+        return {"message": f"Saved {len(saved)} setups from Garage61", "data": saved}
+    except Exception as e:
+        return {"error": str(e)}
+
+# ---------- LEGAL STUBS ----------
+@app.get("/scrape/simracingsetups")
+def stub_simracingsetups():
+    return {
+        "note": "SimRacingSetups.com disallows bots in robots.txt. Please visit manually.",
+        "url": "https://www.simracingsetup.com/"
+    }
+
+@app.get("/scrape/racedepartment")
+def stub_racedepartment():
+    return {
+        "note": "RaceDepartment requires login and uses JavaScript. Scraping not allowed or feasible.",
+        "url": "https://www.racedepartment.com/downloads/categories/assetto-corsa.1/"
+    }
+
+@app.get("/scrape/coachdave")
+def stub_coachdave():
+    return {
+        "note": "Coach Dave Academy content is paid. Scraping is against TOS.",
+        "url": "https://coachdaveacademy.com/setups/"
+    }
+
+# ---------- SETUPS FETCH ----------
 def fetch_recent_setups(limit=3) -> str:
     try:
         result = supabase.table("setups").select("*").order("id", desc=True).limit(limit).execute()
@@ -80,6 +137,7 @@ def fetch_recent_setups(limit=3) -> str:
     except Exception as e:
         return f"Could not load setups: {str(e)}"
 
+# ---------- CHAT ----------
 @app.post("/chat")
 async def chat_with_ai(message: Message):
     search_results = await brave_search(message.prompt)

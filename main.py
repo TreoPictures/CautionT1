@@ -9,16 +9,17 @@ from supabase import create_client, Client
 from bs4 import BeautifulSoup
 from datetime import datetime
 
-# API Keys
+# ---------- ENVIRONMENT VARIABLES ----------
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
 BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Supabase init
+# ---------- SUPABASE CLIENT ----------
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# ---------- FASTAPI SETUP ----------
 app = FastAPI()
 
 app.add_middleware(
@@ -72,26 +73,31 @@ async def serpapi_search(query: str) -> str:
     except Exception as e:
         return f"SerpAPI failed: {str(e)}"
 
-# ---------- SCRAPER ----------
+# ---------- GARAGE61 SCRAPER ----------
 @app.get("/scrape/garage61")
 def scrape_garage61():
     url = "https://garage61.gg/setups"
     try:
         response = requests.get(url, timeout=10)
+        response.raise_for_status()
+
         soup = BeautifulSoup(response.text, "html.parser")
         setup_cards = soup.select(".setup-card")
+        if not setup_cards:
+            return {"message": "No setup cards found. The site structure may have changed."}
+
         saved = []
 
         for card in setup_cards:
             car = card.select_one(".car-name")
             track = card.select_one(".track-name")
-            link = card.select_one("a")["href"]
+            link = card.select_one("a")
 
             if car and track and link:
                 entry = {
                     "car": car.text.strip(),
                     "track": track.text.strip(),
-                    "url": f"https://garage61.gg{link}",
+                    "url": f"https://garage61.gg{link['href']}",
                     "source": "Garage61",
                     "notes": None,
                     "created_at": datetime.utcnow().isoformat()
@@ -100,10 +106,11 @@ def scrape_garage61():
                 saved.append(entry)
 
         return {"message": f"Saved {len(saved)} setups from Garage61", "data": saved}
+
     except Exception as e:
         return {"error": str(e)}
 
-# ---------- LEGAL STUBS ----------
+# ---------- LEGAL STUB SCRAPERS ----------
 @app.get("/scrape/simracingsetups")
 def stub_simracingsetups():
     return {
@@ -125,7 +132,7 @@ def stub_coachdave():
         "url": "https://coachdaveacademy.com/setups/"
     }
 
-# ---------- SETUPS FETCH ----------
+# ---------- FETCH RECENT SETUPS ----------
 def fetch_recent_setups(limit=3) -> str:
     try:
         result = supabase.table("setups").select("*").order("id", desc=True).limit(limit).execute()
@@ -137,7 +144,7 @@ def fetch_recent_setups(limit=3) -> str:
     except Exception as e:
         return f"Could not load setups: {str(e)}"
 
-# ---------- CHAT ----------
+# ---------- CHAT WITH AI ----------
 @app.post("/chat")
 async def chat_with_ai(message: Message):
     search_results = await brave_search(message.prompt)
@@ -189,6 +196,7 @@ async def chat_with_ai(message: Message):
     except Exception as e:
         return {"error": str(e)}
 
+# ---------- ROOT ----------
 @app.get("/")
 def read_root():
     return {"message": "Together AI + Brave + SerpAPI + Supabase SetupBot is live!"}

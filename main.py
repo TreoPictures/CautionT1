@@ -68,13 +68,27 @@ async def serpapi_search(query: str) -> str:
 async def chat_with_ai(message: Message):
     # First fetch search results
     search_results = await brave_search(message.prompt)
-    if "failed" in search_results.lower():
+    if "failed" in search_results.lower() or "No relevant search results" in search_results:
         search_results = await serpapi_search(message.prompt)
 
-    # Compose augmented prompt
+    # Compose augmented prompt with explicit instruction to output setup values
     messages = [
-        {"role": "system", "content": "You are a sim racing setup expert. Use the provided search results to help answer questions."},
-        {"role": "user", "content": f"User prompt: {message.prompt}\n\nSearch results:\n{search_results}"}
+        {
+            "role": "system",
+            "content": (
+                "You are a sim racing setup expert. "
+                "Given search results, extract detailed car setup parameters "
+                "like tire pressure, wing angles, suspension stiffness, gear ratios, "
+                "and any other tuning values. "
+                "Do not just summarize or give general advice, provide the actual setup values. "
+                "If no detailed setup is found, please provide a realistic typical setup based on your knowledge."
+            )
+        },
+        {
+            "role": "user",
+            "content": f"User prompt: {message.prompt}\n\nSearch results:\n{search_results}\n\n"
+                       "Please provide the detailed setup values."
+        }
     ]
 
     headers = {
@@ -101,6 +115,7 @@ async def chat_with_ai(message: Message):
         }
     except Exception as e:
         return {"error": str(e)}
+
 
 @app.get("/")
 def read_root():

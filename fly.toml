@@ -14,3 +14,6 @@ app = "cautiont1"
   [[services.ports]]
     handlers = ["tls", "http"]
     port = 443
+
+[dns]
+  nameservers = ["1.1.1.1", "8.8.8.8"]

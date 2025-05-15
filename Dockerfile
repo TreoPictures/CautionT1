@@ -1,7 +1,5 @@
 FROM python:3.11-slim
 
-RUN echo "nameserver 1.1.1.1" > /etc/resolv.conf
-
 WORKDIR /app
 
 COPY requirements.txt .

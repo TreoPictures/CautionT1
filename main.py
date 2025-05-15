@@ -66,28 +66,44 @@ async def serpapi_search(query: str) -> str:
 
 @app.post("/chat")
 async def chat_with_ai(message: Message):
-    # First fetch search results
     search_results = await brave_search(message.prompt)
     if "failed" in search_results.lower() or "No relevant search results" in search_results:
         search_results = await serpapi_search(message.prompt)
 
-    # Compose augmented prompt with explicit instruction to output setup values
     messages = [
         {
             "role": "system",
             "content": (
-                "You are a sim racing setup expert. "
-                "Given search results, extract detailed car setup parameters "
-                "like tire pressure, wing angles, suspension stiffness, gear ratios, "
-                "and any other tuning values. "
-                "Do not just summarize or give general advice, provide the actual setup values. "
-                "If no detailed setup is found, please provide a realistic typical setup based on your knowledge."
+                "You are an expert sim racing setup engineer. "
+                "Given search results that may include setup guides or forum posts, extract detailed setup parameters for the car and track in question. "
+                "These parameters include (but are not limited to): tire pressures, suspension stiffness, camber, toe, wing angles, gear ratios, brake bias, and any other relevant tuning values. "
+                "If the search results do NOT contain any setup parameters, then provide a complete realistic setup for the specified car, track, and conditions based on your own expertise. "
+                "Always output the setup parameters clearly and numerically if possible. "
+                "Please output the setup parameters as a JSON object with keys such as:\n"
+                "{\n"
+                "  \"tire_pressure_front\": value,\n"
+                "  \"tire_pressure_rear\": value,\n"
+                "  \"front_wing_angle\": value,\n"
+                "  \"rear_wing_angle\": value,\n"
+                "  \"suspension_front_stiffness\": value,\n"
+                "  \"suspension_rear_stiffness\": value,\n"
+                "  \"camber_front\": value,\n"
+                "  \"camber_rear\": value,\n"
+                "  \"toe_front\": value,\n"
+                "  \"toe_rear\": value,\n"
+                "  \"gear_ratios\": [...],\n"
+                "  \"brake_bias\": value\n"
+                "}\n"
+                "If any value is unknown, estimate it realistically."
             )
         },
         {
             "role": "user",
-            "content": f"User prompt: {message.prompt}\n\nSearch results:\n{search_results}\n\n"
-                       "Please provide the detailed setup values."
+            "content": (
+                f"User request: {message.prompt}\n\n"
+                f"Search results:\n{search_results}\n\n"
+                "Please provide the detailed setup parameters or a full expert setup."
+            )
         }
     ]
 
@@ -99,8 +115,8 @@ async def chat_with_ai(message: Message):
     data = {
         "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
         "messages": messages,
-        "temperature": 0.7,
-        "max_tokens": 400
+        "temperature": 0.5,
+        "max_tokens": 700
     }
 
     try:
@@ -115,6 +131,7 @@ async def chat_with_ai(message: Message):
         }
     except Exception as e:
         return {"error": str(e)}
+
 
 
 @app.get("/")

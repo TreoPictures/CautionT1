@@ -1,26 +1,28 @@
 import os
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware  # Import CORS middleware
 from pydantic import BaseModel
 import requests
 import httpx
-from supabase import create_client, Client
 
-# API Keys
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
 BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-# Supabase Client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI()
+
+# Add CORS middleware here - allows your Carrd website (or any origin) to call your API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # You can restrict this to your Carrd domain later, e.g. ["https://your-carrd-site.com"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class Message(BaseModel):
     prompt: str
 
-# Brave Search
 async def brave_search(query: str) -> str:
     url = "https://api.search.brave.com/res/v1/web/search"
     headers = {
@@ -41,7 +43,6 @@ async def brave_search(query: str) -> str:
     except Exception as e:
         return f"Brave Search failed: {str(e)}"
 
-# SerpAPI Fallback
 async def serpapi_search(query: str) -> str:
     url = "https://serpapi.com/search"
     params = {
@@ -63,15 +64,14 @@ async def serpapi_search(query: str) -> str:
     except Exception as e:
         return f"SerpAPI failed: {str(e)}"
 
-# Chat Endpoint
 @app.post("/chat")
 async def chat_with_ai(message: Message):
-    # Search first
+    # First fetch search results
     search_results = await brave_search(message.prompt)
     if "failed" in search_results.lower():
         search_results = await serpapi_search(message.prompt)
 
-    # Construct prompt
+    # Compose augmented prompt
     messages = [
         {"role": "system", "content": "You are a sim racing setup expert. Use the provided search results to help answer questions."},
         {"role": "user", "content": f"User prompt: {message.prompt}\n\nSearch results:\n{search_results}"}
@@ -90,20 +90,18 @@ async def chat_with_ai(message: Message):
     }
 
     try:
-        response = requests.post("https://api.together.xyz/v1/chat/completions", headers=headers, json=data)
+        response = requests.post(
+            "https://api.together.xyz/v1/chat/completions",
+            headers=headers,
+            json=data
+        )
         response.raise_for_status()
-        reply = response.json()["choices"][0]["message"]["content"].strip()
-
-        # Save to Supabase
-        supabase.table("chat_history").insert({
-            "prompt": message.prompt,
-            "response": reply
-        }).execute()
-
-        return {"response": reply}
+        return {
+            "response": response.json()["choices"][0]["message"]["content"].strip()
+        }
     except Exception as e:
         return {"error": str(e)}
 
 @app.get("/")
 def read_root():
-    return {"message": "Together AI + Brave Search + SerpAPI + Supabase live"}
+    return {"message": "Together AI + Brave Search + SerpAPI live"}
